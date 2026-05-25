@@ -1,3 +1,10 @@
+/**
+ * @deprecated This file is deprecated. The SDK (@cursor/sdk) now handles
+ * agent execution directly via CursorSdkAgent. Windows command line limits
+ * are no longer a concern with the SDK. This file is kept only for
+ * backward compatibility and will be removed in a future version.
+ */
+
 import type { AgentCommand } from "./env.js";
 import { resolveAgentCommand, type EnvOptions } from "./env.js";
 
@@ -21,119 +28,41 @@ export type FitPromptErr = {
 export type FitPromptResult = FitPromptOk | FitPromptErr;
 
 /**
- * Pessimistic upper bound on UTF-16 code units in the Windows command line
- * Node/libuv passes to CreateProcess (see libuv `make_program_args` sizing).
+ * @deprecated Not needed with SDK.
  */
-export function estimateCmdlineLength(resolved: AgentCommand): number {
-  const argv = [resolved.command, ...resolved.args];
-  if (resolved.windowsVerbatimArguments) {
-    let n = 0;
-    for (const a of argv) {
-      n += a.length;
-    }
-    n += Math.max(0, argv.length - 1);
-    return n + 512;
-  }
-  let dstLen = 0;
-  for (const a of argv) {
-    dstLen += a.length;
-  }
-  dstLen = dstLen * 2 + argv.length * 2 + Math.max(0, argv.length - 1);
-  return dstLen + 512;
+export function estimateCmdlineLength(_resolved: AgentCommand): number {
+  throw new Error(
+    "estimateCmdlineLength is deprecated. The SDK does not have Windows command line limits.",
+  );
 }
 
 /**
- * On Windows, shrinks the prompt (keeping the tail) so spawn argv stays under
- * `maxCmdline`. Other platforms return the full prompt unchanged.
+ * @deprecated Not needed with SDK.
  */
 export function fitPromptToWinCmdline(
-  agentBin: string,
-  fixedArgs: string[],
-  prompt: string,
-  opts: {
+  _agentBin: string,
+  _fixedArgs: string[],
+  _prompt: string,
+  _opts: {
     maxCmdline: number;
     platform: NodeJS.Platform;
     cwd?: string;
     env?: EnvOptions["env"];
   },
 ): FitPromptResult {
-  const { maxCmdline, platform, cwd, env } = opts;
-  const resolveOpts: EnvOptions = { cwd, env, platform };
-
-  if (platform !== "win32") {
-    return {
-      ok: true,
-      args: [...fixedArgs, prompt],
-      truncated: false,
-      originalLength: prompt.length,
-      finalPromptLength: prompt.length,
-    };
-  }
-
-  const measured = (p: string) =>
-    estimateCmdlineLength(
-      resolveAgentCommand(agentBin, [...fixedArgs, p], resolveOpts),
-    );
-
-  const emptyTail = measured("");
-  if (emptyTail > maxCmdline) {
-    return {
-      ok: false,
-      error:
-        "Windows command line exceeds the configured limit even without a prompt; shorten workspace path, model id, or CURSOR_BRIDGE_WIN_CMDLINE_MAX.",
-    };
-  }
-
-  if (measured(prompt) <= maxCmdline) {
-    return {
-      ok: true,
-      args: [...fixedArgs, prompt],
-      truncated: false,
-      originalLength: prompt.length,
-      finalPromptLength: prompt.length,
-    };
-  }
-
-  const prefix = WIN_PROMPT_OMISSION_PREFIX;
-  if (measured(prefix) > maxCmdline) {
-    return {
-      ok: false,
-      error:
-        "Windows command line too long to fit even the truncation notice; shorten workspace path or flags.",
-    };
-  }
-
-  let lo = 0;
-  let hi = prompt.length;
-  let best = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const tail = mid === 0 ? "" : prompt.slice(-mid);
-    const candidate = prefix + tail;
-    if (measured(candidate) <= maxCmdline) {
-      best = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-
-  const finalPrompt =
-    best === 0 ? prefix : prefix + prompt.slice(-best);
-  return {
-    ok: true,
-    args: [...fixedArgs, finalPrompt],
-    truncated: true,
-    originalLength: prompt.length,
-    finalPromptLength: finalPrompt.length,
-  };
+  throw new Error(
+    "fitPromptToWinCmdline is deprecated. The SDK does not have Windows command line limits.",
+  );
 }
 
+/**
+ * @deprecated Not needed with SDK.
+ */
 export function warnPromptTruncated(
-  originalLength: number,
-  finalLength: number,
+  _originalLength: number,
+  _finalLength: number,
 ): void {
-  console.warn(
-    `[${new Date().toISOString()}] Windows: prompt truncated for CreateProcess limit (${originalLength} -> ${finalLength} chars, tail preserved).`,
+  throw new Error(
+    "warnPromptTruncated is deprecated. The SDK does not have Windows command line limits.",
   );
 }

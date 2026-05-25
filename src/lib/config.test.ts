@@ -7,32 +7,27 @@ describe("loadBridgeConfig", () => {
   it("returns defaults when env is empty", () => {
     const config = loadBridgeConfig({ env: {}, cwd: "/workspace" });
 
-    expect(config.agentBin).toBe("agent");
+    expect(config.cursorApiKey).toBeUndefined();
     expect(config.host).toBe("127.0.0.1");
     expect(config.port).toBe(8765);
     expect(config.requiredKey).toBeUndefined();
     expect(config.defaultModel).toBe("default");
-    expect(config.force).toBe(false);
-    expect(config.approveMcps).toBe(false);
     expect(config.strictModel).toBe(true);
     expect(config.mode).toBe("ask");
     expect(config.workspace).toBe("/workspace");
     expect(config.chatOnlyWorkspace).toBe(true);
     expect(config.chatOnlyWorkspaceExplicit).toBe(false);
     expect(config.sessionsLogPath).toBe(path.join("/workspace", "sessions.log"));
-    expect(config.winCmdlineMax).toBe(30_000);
+    expect(config.useCloudRuntime).toBe(false);
   });
 
   it("assembles config from the centralized env layer", () => {
     const config = loadBridgeConfig({
       env: {
-        CURSOR_AGENT_BIN: "/usr/bin/agent",
         CURSOR_BRIDGE_HOST: "0.0.0.0",
         CURSOR_BRIDGE_PORT: "9999",
         CURSOR_BRIDGE_API_KEY: "sk-secret",
         CURSOR_BRIDGE_DEFAULT_MODEL: "org/claude-3-opus",
-        CURSOR_BRIDGE_FORCE: "true",
-        CURSOR_BRIDGE_APPROVE_MCPS: "yes",
         CURSOR_BRIDGE_STRICT_MODEL: "false",
         CURSOR_BRIDGE_WORKSPACE: "./my-workspace",
         CURSOR_BRIDGE_TIMEOUT_MS: "60000",
@@ -44,13 +39,10 @@ describe("loadBridgeConfig", () => {
       cwd: "/tmp/project",
     });
 
-    expect(config.agentBin).toBe("/usr/bin/agent");
     expect(config.host).toBe("0.0.0.0");
     expect(config.port).toBe(9999);
     expect(config.requiredKey).toBe("sk-secret");
     expect(config.defaultModel).toBe("claude-3-opus");
-    expect(config.force).toBe(true);
-    expect(config.approveMcps).toBe(true);
     expect(config.strictModel).toBe(false);
     expect(path.isAbsolute(config.workspace)).toBe(true);
     expect(config.workspace).toContain("my-workspace");
@@ -66,33 +58,36 @@ describe("loadBridgeConfig", () => {
     );
   });
 
-  it("sets acpSkipAuthenticate and acpEnv when CURSOR_API_KEY is set", () => {
+  it("sets cursorApiKey when CURSOR_API_KEY is set", () => {
     const config = loadBridgeConfig({
-      env: { CURSOR_API_KEY: "sk-abc", CURSOR_AGENT_BIN: "agent" },
+      env: { CURSOR_API_KEY: "sk-abc" },
       cwd: "/workspace",
     });
-    expect(config.acpSkipAuthenticate).toBe(true);
-    expect(config.acpEnv.CURSOR_API_KEY).toBe("sk-abc");
-    expect(config.acpEnv.CURSOR_AUTH_TOKEN).toBe("sk-abc");
+    expect(config.cursorApiKey).toBe("sk-abc");
   });
 
-  it("allows CURSOR_BRIDGE_ACP_SKIP_AUTHENTICATE to force skip", () => {
+  it("sets cursorApiKey when CURSOR_AUTH_TOKEN is set", () => {
     const config = loadBridgeConfig({
-      env: {
-        CURSOR_BRIDGE_ACP_SKIP_AUTHENTICATE: "true",
-        CURSOR_AGENT_BIN: "agent",
-      },
+      env: { CURSOR_AUTH_TOKEN: "sk-xyz" },
       cwd: "/workspace",
     });
-    expect(config.acpSkipAuthenticate).toBe(true);
+    expect(config.cursorApiKey).toBe("sk-xyz");
   });
 
-  it("sets acpRawDebug when CURSOR_BRIDGE_ACP_RAW_DEBUG=1", () => {
+  it("prefers CURSOR_API_KEY over CURSOR_AUTH_TOKEN", () => {
     const config = loadBridgeConfig({
-      env: { CURSOR_BRIDGE_ACP_RAW_DEBUG: "1", CURSOR_AGENT_BIN: "agent" },
+      env: { CURSOR_API_KEY: "sk-api", CURSOR_AUTH_TOKEN: "sk-auth" },
       cwd: "/workspace",
     });
-    expect(config.acpRawDebug).toBe(true);
+    expect(config.cursorApiKey).toBe("sk-api");
+  });
+
+  it("sets useCloudRuntime to true when CURSOR_BRIDGE_USE_CLOUD_RUNTIME is set", () => {
+    const config = loadBridgeConfig({
+      env: { CURSOR_BRIDGE_USE_CLOUD_RUNTIME: "true" },
+      cwd: "/workspace",
+    });
+    expect(config.useCloudRuntime).toBe(true);
   });
 
   it("uses tailscale host fallback without mutating process.env", () => {
@@ -107,7 +102,7 @@ describe("loadBridgeConfig", () => {
 
   it("reads CURSOR_BRIDGE_MODE from env", () => {
     const config = loadBridgeConfig({
-      env: { CURSOR_BRIDGE_MODE: "agent", CURSOR_AGENT_BIN: "agent" },
+      env: { CURSOR_BRIDGE_MODE: "agent" },
       cwd: "/workspace",
     });
     expect(config.mode).toBe("agent");
@@ -115,7 +110,7 @@ describe("loadBridgeConfig", () => {
 
   it("prefers env mode over CLI opts.mode", () => {
     const config = loadBridgeConfig({
-      env: { CURSOR_BRIDGE_MODE: "plan", CURSOR_AGENT_BIN: "agent" },
+      env: { CURSOR_BRIDGE_MODE: "plan" },
       mode: "agent",
       cwd: "/workspace",
     });
@@ -124,7 +119,7 @@ describe("loadBridgeConfig", () => {
 
   it("uses opts.mode when env unset", () => {
     const config = loadBridgeConfig({
-      env: { CURSOR_AGENT_BIN: "agent" },
+      env: {},
       mode: "agent",
       cwd: "/workspace",
     });
@@ -134,7 +129,7 @@ describe("loadBridgeConfig", () => {
   it("throws on invalid CURSOR_BRIDGE_MODE", () => {
     expect(() =>
       loadBridgeConfig({
-        env: { CURSOR_BRIDGE_MODE: "bogus", CURSOR_AGENT_BIN: "agent" },
+        env: { CURSOR_BRIDGE_MODE: "bogus" },
         cwd: "/workspace",
       }),
     ).toThrow(/CURSOR_BRIDGE_MODE/);

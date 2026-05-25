@@ -1,57 +1,41 @@
+/**
+ * @deprecated This file is deprecated. The SDK (@cursor/sdk) now handles
+ * agent execution directly. This file is kept only for backward compatibility
+ * with existing tests and will be removed in a future version.
+ */
+
 import type { BridgeConfig } from "./config.js";
 import type { CursorExecutionMode } from "./execution-mode.js";
 
 /**
- * CLI flags and options for the Cursor agent, excluding the final prompt argument.
+ * @deprecated SDK handles agent execution; no longer needed.
  */
 export function buildAgentFixedArgs(
-  config: BridgeConfig,
-  workspaceDir: string,
-  model: string,
-  stream: boolean,
-  mode: CursorExecutionMode,
-  effectiveChatOnly: boolean,
+  _config: BridgeConfig,
+  _workspaceDir: string,
+  _model: string,
+  _stream: boolean,
+  _mode: CursorExecutionMode,
+  _effectiveChatOnly: boolean,
 ): string[] {
-  const args = ["--print"];
-  if (config.approveMcps) args.push("--approve-mcps");
-  if (config.force) args.push("--force");
-  if (effectiveChatOnly) args.push("--trust");
-  // cursor-agent only accepts --mode plan|ask; agent mode is the default
-  // and rejects --mode agent with "argument 'agent' is invalid".
-  if (mode !== "agent") {
-    args.push("--mode", mode);
-  }
-  args.push("--workspace", workspaceDir);
-  args.push("--model", model);
-  if (stream) {
-    args.push("--stream-partial-output", "--output-format", "stream-json");
-  } else {
-    args.push("--output-format", "text");
-  }
-  return args;
+  throw new Error(
+    "buildAgentFixedArgs is deprecated. The SDK now handles agent execution directly.",
+  );
 }
 
 /**
- * Build CLI arguments for running the Cursor agent.
+ * @deprecated SDK handles agent execution; no longer needed.
  */
 export function buildAgentCmdArgs(
-  config: BridgeConfig,
-  workspaceDir: string,
-  model: string,
-  prompt: string,
-  stream: boolean,
-  mode: CursorExecutionMode,
-  effectiveChatOnly: boolean,
+  _config: BridgeConfig,
+  _workspaceDir: string,
+  _model: string,
+  _prompt: string,
+  _stream: boolean,
+  _mode: CursorExecutionMode,
+  _effectiveChatOnly: boolean,
 ): string[] {
-  return [
-    ...buildAgentFixedArgs(
-      config,
-      workspaceDir,
-      model,
-      stream,
-      mode,
-      effectiveChatOnly,
-    ),
-    prompt,
-  ];
+  throw new Error(
+    "buildAgentCmdArgs is deprecated. The SDK now handles agent execution directly.",
+  );
 }

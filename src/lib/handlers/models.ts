@@ -1,17 +1,17 @@
 import * as http from "node:http";
 
 import type { BridgeConfig } from "../config.js";
-import type { CursorCliModel } from "../cursor-cli.js";
-import { listCursorCliModels } from "../cursor-cli.js";
+import { listSdkModels } from "../sdk-models.js";
 import { json } from "../http.js";
 import { getAnthropicModelAliases } from "../model-map.js";
 
 const MODEL_CACHE_TTL_MS = 5 * 60_000;
 
-export type ModelCache = { at: number; models: CursorCliModel[] };
+export type CursorModel = { id: string; name: string };
+export type ModelCache = { at: number; models: CursorModel[] };
 export type ModelCacheRef = {
   current?: ModelCache;
-  inflight?: Promise<CursorCliModel[]>;
+  inflight?: Promise<CursorModel[]>;
 };
 
 export type HandleModelsOpts = {
@@ -22,7 +22,7 @@ export type HandleModelsOpts = {
 export async function getCachedCursorModels(
   config: BridgeConfig,
   modelCacheRef: ModelCacheRef,
-): Promise<CursorCliModel[]> {
+): Promise<CursorModel[]> {
   const now = Date.now();
   if (
     !modelCacheRef.current ||
@@ -30,10 +30,7 @@ export async function getCachedCursorModels(
   ) {
     // Deduplicate concurrent fetches — reuse a single in-flight promise
     if (!modelCacheRef.inflight) {
-      modelCacheRef.inflight = listCursorCliModels({
-        agentBin: config.agentBin,
-        timeoutMs: 60_000,
-      }).then(
+      modelCacheRef.inflight = listSdkModels(config.cursorApiKey).then(
         (models) => {
           modelCacheRef.current = { at: Date.now(), models };
           modelCacheRef.inflight = undefined;

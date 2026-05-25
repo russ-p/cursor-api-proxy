@@ -7,12 +7,6 @@ import { createRequestListener } from "./request-listener.js";
 import { initAccountPool } from "./account-pool.js";
 import { killAllChildProcesses } from "./process.js";
 
-function acpLauncherLabel(acpArgs: string[]): string {
-  const first = acpArgs[0];
-  if (first && /\.[cm]?js$/i.test(first)) return "node + script";
-  return "cmd";
-}
-
 export type BridgeServerOptions = {
   version: string;
   config: BridgeConfig;
@@ -133,15 +127,10 @@ function startSingleServer(
     console.log(
       `cursor-api-proxy listening on ${scheme}://${config.host}:${config.port}`,
     );
-    console.log(`- agent bin: ${config.agentBin}`);
-    console.log(
-      `- ACP: ${config.useAcp ? "yes" : "no"}${config.useAcp ? ` (launcher: ${acpLauncherLabel(config.acpArgs)})` : ""}`,
-    );
+    console.log(`- runtime: ${config.useCloudRuntime ? "cloud" : "local"}`);
     console.log(`- workspace: ${config.workspace}`);
     console.log(`- mode: ${config.mode}`);
     console.log(`- default model: ${config.defaultModel}`);
-    console.log(`- force: ${config.force}`);
-    console.log(`- approve mcps: ${config.approveMcps}`);
     console.log(`- required api key: ${config.requiredKey ? "yes" : "no"}`);
     console.log(`- sessions log: ${config.sessionsLogPath}`);
     console.log(
@@ -149,12 +138,6 @@ function startSingleServer(
     );
     console.log(
       `- verbose traffic: ${config.verbose ? "yes (CURSOR_BRIDGE_VERBOSE=true)" : "no"}`,
-    );
-    console.log(
-      `- max mode: ${config.maxMode ? "yes (CURSOR_BRIDGE_MAX_MODE=true)" : "no"}`,
-    );
-    console.log(
-      `- Windows cmdline budget: ${config.winCmdlineMax} (prompt tail truncation when over limit; Windows only)`,
     );
     if (config.configDirs && config.configDirs.length > 0) {
       console.log(

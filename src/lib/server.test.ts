@@ -4,33 +4,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { startBridgeServer } from "./server.js";
 import type { BridgeConfig } from "./config.js";
 
-vi.mock("./cursor-cli.js", () => ({
-  listCursorCliModels: vi.fn().mockResolvedValue([
+vi.mock("./sdk-models.js", () => ({
+  listSdkModels: vi.fn().mockResolvedValue([
     { id: "claude-3-opus", name: "Claude 3 Opus" },
     { id: "claude-3-sonnet", name: "Claude 3 Sonnet" },
   ]),
 }));
 
-vi.mock("./process.js", () => ({
-  killAllChildProcesses: vi.fn(),
-  run: vi.fn().mockResolvedValue({
-    code: 0,
-    stdout: "Hello from agent",
-    stderr: "",
-  }),
-  runStreaming: vi.fn().mockImplementation((_cmd, _args, opts) => {
-    // Simulate streaming response
-    if (opts.onLine) {
-      opts.onLine(
-        JSON.stringify({
-          type: "assistant",
-          message: { content: [{ type: "text", text: "Hello" }] },
-        }),
-      );
-      opts.onLine(JSON.stringify({ type: "result", subtype: "success" }));
-    }
-    return Promise.resolve({ code: 0, stderr: "" });
-  }),
+vi.mock("./sdk-agent.js", () => ({
+  CursorSdkAgent: vi.fn().mockImplementation(() => ({
+    execute: vi.fn().mockImplementation((_prompt, onChunk) => {
+      if (onChunk) {
+        onChunk("Hello from SDK");
+      }
+      return Promise.resolve({ text: "Hello from SDK" });
+    }),
+    dispose: vi.fn().mockResolvedValue(undefined),
+  })),
 }));
 
 vi.mock("./request-log.js", () => ({
@@ -48,16 +38,10 @@ const tmpLogPath = "/tmp/cursor-proxy-test-sessions.log";
 
 function createTestConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
   return {
-    agentBin: "agent",
-    acpCommand: "agent",
-    acpArgs: ["acp"],
-    acpEnv: {},
     host: "127.0.0.1",
     port: 0, // Let OS assign a free port
     defaultModel: "default",
     mode: "ask",
-    force: false,
-    approveMcps: false,
     strictModel: true,
     workspace: process.cwd(),
     timeoutMs: 30_000,
@@ -65,14 +49,10 @@ function createTestConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
     chatOnlyWorkspace: true,
     chatOnlyWorkspaceExplicit: false,
     verbose: false,
-    maxMode: false,
-    promptViaStdin: false,
-    useAcp: false,
-    acpSkipAuthenticate: false,
-    acpRawDebug: false,
     configDirs: overrides.configDirs ?? [],
     multiPort: overrides.multiPort ?? false,
-    winCmdlineMax: 30_000,
+    useCloudRuntime: false,
+    cursorApiKey: undefined,
     ...overrides,
   };
 }

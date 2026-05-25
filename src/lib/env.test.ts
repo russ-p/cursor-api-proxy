@@ -10,12 +10,10 @@ describe("loadEnvConfig", () => {
   it("returns defaults when env is empty", () => {
     const loaded = loadEnvConfig({ env: {}, cwd: "/workspace" });
 
-    expect(loaded.agentBin).toBe("agent");
+    expect(loaded.cursorApiKey).toBeUndefined();
     expect(loaded.host).toBe("127.0.0.1");
     expect(loaded.port).toBe(8765);
     expect(loaded.defaultModel).toBe("default");
-    expect(loaded.force).toBe(false);
-    expect(loaded.approveMcps).toBe(false);
     expect(loaded.strictModel).toBe(true);
     expect(loaded.workspace).toBe("/workspace");
     expect(loaded.sessionsLogPath).toBe(path.join("/workspace", "sessions.log"));
@@ -24,45 +22,18 @@ describe("loadEnvConfig", () => {
     expect(loaded.mode).toBeUndefined();
     expect(loaded.verbose).toBe(false);
     expect(loaded.commandShell).toBe("cmd.exe");
-    expect(loaded.maxMode).toBe(false);
-    expect(loaded.promptViaStdin).toBe(false);
-    expect(loaded.useAcp).toBe(false);
-  });
-
-  it("applies env aliases with expected precedence", () => {
-    expect(
-      loadEnvConfig({
-        env: {
-          CURSOR_CLI_PATH: "/path/from-cli-path",
-          CURSOR_CLI_BIN: "/path/from-cli-bin",
-          CURSOR_AGENT_BIN: "/path/from-agent-bin",
-        },
-      }).agentBin,
-    ).toBe("/path/from-agent-bin");
-
-    expect(
-      loadEnvConfig({
-        env: {
-          CURSOR_CLI_PATH: "/path/from-cli-path",
-          CURSOR_CLI_BIN: "/path/from-cli-bin",
-        },
-      }).agentBin,
-    ).toBe("/path/from-cli-bin");
+    expect(loaded.useCloudRuntime).toBe(false);
   });
 
   it("parses booleans, numbers, and model normalization", () => {
     const loaded = loadEnvConfig({
       env: {
-        CURSOR_BRIDGE_FORCE: "yes",
-        CURSOR_BRIDGE_APPROVE_MCPS: "on",
         CURSOR_BRIDGE_STRICT_MODEL: "off",
         CURSOR_BRIDGE_TIMEOUT_MS: "60000",
         CURSOR_BRIDGE_DEFAULT_MODEL: "org/claude-3-opus",
       },
     });
 
-    expect(loaded.force).toBe(true);
-    expect(loaded.approveMcps).toBe(true);
     expect(loaded.strictModel).toBe(false);
     expect(loaded.timeoutMs).toBe(60000);
     expect(loaded.defaultModel).toBe("claude-3-opus");
@@ -241,43 +212,26 @@ describe("loadEnvConfig", () => {
     );
   });
 
-  it("maxMode defaults to false", () => {
-    expect(loadEnvConfig({ env: {} }).maxMode).toBe(false);
+  it("sets cursorApiKey when CURSOR_API_KEY is set", () => {
+    expect(loadEnvConfig({ env: { CURSOR_API_KEY: "sk-abc" } }).cursorApiKey).toBe("sk-abc");
   });
 
-  it("maxMode is parsed from CURSOR_BRIDGE_MAX_MODE", () => {
+  it("sets cursorApiKey when CURSOR_AUTH_TOKEN is set", () => {
+    expect(loadEnvConfig({ env: { CURSOR_AUTH_TOKEN: "sk-xyz" } }).cursorApiKey).toBe("sk-xyz");
+  });
+
+  it("prefers CURSOR_API_KEY over CURSOR_AUTH_TOKEN", () => {
     expect(
-      loadEnvConfig({ env: { CURSOR_BRIDGE_MAX_MODE: "true" } }).maxMode,
+      loadEnvConfig({
+        env: { CURSOR_API_KEY: "sk-api", CURSOR_AUTH_TOKEN: "sk-auth" },
+      }).cursorApiKey,
+    ).toBe("sk-api");
+  });
+
+  it("sets useCloudRuntime to true when CURSOR_BRIDGE_USE_CLOUD_RUNTIME is set", () => {
+    expect(
+      loadEnvConfig({ env: { CURSOR_BRIDGE_USE_CLOUD_RUNTIME: "true" } }).useCloudRuntime,
     ).toBe(true);
-  });
-
-  it("winCmdlineMax defaults to 30000", () => {
-    expect(loadEnvConfig({ env: {} }).winCmdlineMax).toBe(30_000);
-  });
-
-  it("winCmdlineMax is parsed from CURSOR_BRIDGE_WIN_CMDLINE_MAX and clamped", () => {
-    expect(
-      loadEnvConfig({ env: { CURSOR_BRIDGE_WIN_CMDLINE_MAX: "25000" } })
-        .winCmdlineMax,
-    ).toBe(25_000);
-    expect(
-      loadEnvConfig({ env: { CURSOR_BRIDGE_WIN_CMDLINE_MAX: "999999" } })
-        .winCmdlineMax,
-    ).toBe(32_700);
-    expect(
-      loadEnvConfig({ env: { CURSOR_BRIDGE_WIN_CMDLINE_MAX: "100" } })
-        .winCmdlineMax,
-    ).toBe(4096);
-  });
-
-  it("parses CURSOR_BRIDGE_PROMPT_VIA_STDIN and CURSOR_BRIDGE_USE_ACP", () => {
-    expect(
-      loadEnvConfig({ env: { CURSOR_BRIDGE_PROMPT_VIA_STDIN: "true" } })
-        .promptViaStdin,
-    ).toBe(true);
-    expect(loadEnvConfig({ env: { CURSOR_BRIDGE_USE_ACP: "1" } }).useAcp).toBe(
-      true,
-    );
   });
 });
 
@@ -364,47 +318,10 @@ describe("discoverAccountDirs filtering", () => {
 });
 
 describe("resolveAgentCommand", () => {
-  it("uses CURSOR_AGENT_NODE and CURSOR_AGENT_SCRIPT on Windows", () => {
-    const command = resolveAgentCommand("agent.cmd", ["--print", "hello"], {
-      platform: "win32",
-      env: {
-        CURSOR_AGENT_NODE: "C:\\node\\node.exe",
-        CURSOR_AGENT_SCRIPT: "C:\\cursor\\agent.js",
-      },
-    });
-
-    expect(command.command).toBe("C:\\node\\node.exe");
-    expect(command.args).toEqual(["C:\\cursor\\agent.js", "--print", "hello"]);
-    expect(command.env.CURSOR_INVOKED_AS).toBe("agent.cmd");
-    expect(command.windowsVerbatimArguments).toBeUndefined();
-  });
-
-  it("uses COMSPEC for .cmd invocations on Windows when direct node launch is unavailable", () => {
-    const command = resolveAgentCommand(
-      "C:\\cursor\\agent.cmd",
-      ["--prompt", "hello world"],
-      {
-        platform: "win32",
-        env: {
-          COMSPEC: "C:\\Windows\\System32\\cmd.exe",
-        },
-      },
-    );
-
-    expect(command.command).toBe("C:\\Windows\\System32\\cmd.exe");
-    expect(command.args).toEqual([
-      "/d",
-      "/s",
-      "/c",
-      '""C:\\cursor\\agent.cmd" --prompt "hello world""',
-    ]);
-    expect(command.windowsVerbatimArguments).toBe(true);
-  });
-
-  it("returns the original command on non-Windows platforms", () => {
+  it("returns stub result on all platforms", () => {
     const command = resolveAgentCommand("agent", ["--help"], {
       platform: "darwin",
-      env: { CURSOR_AGENT_NODE: "/ignored/node" },
+      env: {},
     });
 
     expect(command.command).toBe("agent");
@@ -412,69 +329,14 @@ describe("resolveAgentCommand", () => {
     expect(command.windowsVerbatimArguments).toBeUndefined();
   });
 
-  it("uses versioned layout (versions/YYYY.MM.DD-commit) when node.exe/index.js not in agent dir", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-agent-"));
-    try {
-      const agentCmd = path.join(tmp, "agent.cmd");
-      const versionDir = path.join(tmp, "versions", "2026.03.11-6dfa30c");
-      fs.mkdirSync(versionDir, { recursive: true });
-      fs.writeFileSync(path.join(versionDir, "node.exe"), "");
-      fs.writeFileSync(path.join(versionDir, "index.js"), "");
-      fs.writeFileSync(agentCmd, "");
+  it("returns stub result on Windows", () => {
+    const command = resolveAgentCommand("agent.cmd", ["--print", "hello"], {
+      platform: "win32",
+      env: {},
+    });
 
-      const command = resolveAgentCommand(agentCmd, ["acp"], {
-        platform: "win32",
-        env: {},
-        cwd: tmp,
-      });
-
-      expect(command.command).toBe(path.join(versionDir, "node.exe"));
-      expect(command.args).toEqual([path.join(versionDir, "index.js"), "acp"]);
-      expect(command.windowsVerbatimArguments).toBeUndefined();
-      expect(command.env.CURSOR_INVOKED_AS).toBe("agent.cmd");
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it("falls back to cmd when versions dir does not exist", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-agent-"));
-    try {
-      const agentCmd = path.join(tmp, "agent.cmd");
-      fs.writeFileSync(agentCmd, "");
-
-      const command = resolveAgentCommand(agentCmd, ["acp"], {
-        platform: "win32",
-        env: { COMSPEC: "C:\\Windows\\System32\\cmd.exe" },
-        cwd: tmp,
-      });
-
-      expect(command.command).toBe("C:\\Windows\\System32\\cmd.exe");
-      expect(command.windowsVerbatimArguments).toBe(true);
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it("falls back to cmd when versions dir has no valid version subdirs", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-agent-"));
-    try {
-      const agentCmd = path.join(tmp, "agent.cmd");
-      const versionsDir = path.join(tmp, "versions");
-      fs.mkdirSync(versionsDir, { recursive: true });
-      fs.writeFileSync(agentCmd, "");
-      fs.mkdirSync(path.join(versionsDir, "not-a-version"), { recursive: true });
-
-      const command = resolveAgentCommand(agentCmd, ["acp"], {
-        platform: "win32",
-        env: { COMSPEC: "C:\\Windows\\System32\\cmd.exe" },
-        cwd: tmp,
-      });
-
-      expect(command.command).toBe("C:\\Windows\\System32\\cmd.exe");
-      expect(command.windowsVerbatimArguments).toBe(true);
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
+    expect(command.command).toBe("agent.cmd");
+    expect(command.args).toEqual(["--print", "hello"]);
+    expect(command.windowsVerbatimArguments).toBeUndefined();
   });
 });

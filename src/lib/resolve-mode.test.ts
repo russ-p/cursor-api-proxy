@@ -5,16 +5,10 @@ import { resolveRequestMode } from "./resolve-mode.js";
 
 function base(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
   return {
-    agentBin: "agent",
-    acpCommand: "agent",
-    acpArgs: ["acp"],
-    acpEnv: {},
     host: "127.0.0.1",
     port: 8765,
     defaultModel: "default",
     mode: "ask",
-    force: false,
-    approveMcps: false,
     strictModel: true,
     workspace: "/w",
     timeoutMs: 30_000,
@@ -22,14 +16,10 @@ function base(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
     chatOnlyWorkspace: true,
     chatOnlyWorkspaceExplicit: false,
     verbose: false,
-    maxMode: false,
-    promptViaStdin: false,
-    useAcp: false,
-    acpSkipAuthenticate: true,
-    acpRawDebug: false,
     configDirs: [],
     multiPort: false,
-    winCmdlineMax: 30_000,
+    useCloudRuntime: false,
+    cursorApiKey: undefined,
     ...overrides,
   };
 }

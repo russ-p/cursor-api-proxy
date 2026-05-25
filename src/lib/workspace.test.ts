@@ -7,16 +7,10 @@ import type { BridgeConfig } from "./config.js";
 
 function baseConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
   return {
-    agentBin: "agent",
-    acpCommand: "agent",
-    acpArgs: ["acp"],
-    acpEnv: {},
     host: "127.0.0.1",
     port: 8765,
     defaultModel: "default",
     mode: "ask",
-    force: false,
-    approveMcps: false,
     strictModel: false,
     workspace: "/tmp/proj-base",
     timeoutMs: 300_000,
@@ -24,14 +18,10 @@ function baseConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
     chatOnlyWorkspace: false,
     chatOnlyWorkspaceExplicit: false,
     verbose: false,
-    maxMode: false,
-    promptViaStdin: false,
-    useAcp: false,
-    acpSkipAuthenticate: true,
-    acpRawDebug: false,
     configDirs: [],
     multiPort: false,
-    winCmdlineMax: 30_000,
+    useCloudRuntime: false,
+    cursorApiKey: undefined,
     ...overrides,
   };
 }

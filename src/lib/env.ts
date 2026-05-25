@@ -16,16 +16,16 @@ export type EnvOptions = {
 };
 
 export type LoadedEnv = {
-  agentBin: string;
-  agentNode?: string;
-  agentScript?: string;
+  // === ADDED ===
+  cursorApiKey?: string;
+  useCloudRuntime?: boolean;
+
+  // === KEPT ===
   commandShell: string;
   host: string;
   port: number;
   requiredKey?: string;
   defaultModel: string;
-  force: boolean;
-  approveMcps: boolean;
   strictModel: boolean;
   workspace: string;
   timeoutMs: number;
@@ -37,21 +37,10 @@ export type LoadedEnv = {
   chatOnlyWorkspaceExplicit: boolean;
   mode?: CursorExecutionMode;
   verbose: boolean;
-  /** When true, set maxMode in cli-config.json before each run (larger context, more tools). */
-  maxMode: boolean;
-  /** When true, pass the user prompt via stdin instead of argv (avoids Windows argv truncation). */
-  promptViaStdin: boolean;
-  /** When true, use ACP (Agent Client Protocol) over stdio instead of CLI argv (fixes prompt delivery on Windows). */
-  useAcp: boolean;
   /** Pool of cursor configuration directories for round-robin account rotation. */
   configDirs: string[];
   /** When true, runs each config dir on its own incrementing port starting from `port` */
   multiPort: boolean;
-  /**
-   * Upper bound (UTF-16 code units, pessimistic) for the Windows CreateProcess command line.
-   * On win32 the proxy truncates the prompt tail to stay under this budget.
-   */
-  winCmdlineMax: number;
 };
 
 export type AgentCommand = {
@@ -248,14 +237,10 @@ export function loadEnvConfig(opts: EnvOptions = {}): LoadedEnv {
   const mode = tryParseExecutionModeEnv(firstDefined(env, ["CURSOR_BRIDGE_MODE"]));
 
   return {
-    agentBin:
-      envString(env, [
-        "CURSOR_AGENT_BIN",
-        "CURSOR_CLI_BIN",
-        "CURSOR_CLI_PATH",
-      ]) ?? "agent",
-    agentNode: envString(env, ["CURSOR_AGENT_NODE"]),
-    agentScript: envString(env, ["CURSOR_AGENT_SCRIPT"]),
+    // ADDED:
+    cursorApiKey: envString(env, ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"]),
+    useCloudRuntime: envBool(env, ["CURSOR_BRIDGE_USE_CLOUD_RUNTIME"], false),
+
     commandShell: envString(env, ["COMSPEC"]) ?? "cmd.exe",
     host,
     port,
@@ -263,8 +248,6 @@ export function loadEnvConfig(opts: EnvOptions = {}): LoadedEnv {
     defaultModel: normalizeModelId(
       envString(env, ["CURSOR_BRIDGE_DEFAULT_MODEL"]),
     ),
-    force,
-    approveMcps: envBool(env, ["CURSOR_BRIDGE_APPROVE_MCPS"], false),
     strictModel: envBool(env, ["CURSOR_BRIDGE_STRICT_MODEL"], true),
     workspace:
       resolveAbsolutePath(envString(env, ["CURSOR_BRIDGE_WORKSPACE"]), cwd) ??
@@ -287,12 +270,8 @@ export function loadEnvConfig(opts: EnvOptions = {}): LoadedEnv {
     ),
     mode,
     verbose: envBool(env, ["CURSOR_BRIDGE_VERBOSE"], false),
-    maxMode: envBool(env, ["CURSOR_BRIDGE_MAX_MODE"], false),
-    promptViaStdin: envBool(env, ["CURSOR_BRIDGE_PROMPT_VIA_STDIN"], false),
-    useAcp: envBool(env, ["CURSOR_BRIDGE_USE_ACP"], false),
     configDirs,
     multiPort: envBool(env, ["CURSOR_BRIDGE_MULTI_PORT"], false),
-    winCmdlineMax,
   };
 }
 
@@ -301,76 +280,7 @@ export function resolveAgentCommand(
   args: string[],
   opts: EnvOptions = {},
 ): AgentCommand {
-  const env = getEnvSource(opts.env);
-  const loaded = loadEnvConfig(opts);
-  const platform = opts.platform ?? process.platform;
-  const cwd = getCwd(opts.cwd);
-
-  if (platform === "win32") {
-    if (loaded.agentNode && loaded.agentScript) {
-      const agentScriptPath = path.isAbsolute(loaded.agentScript)
-        ? loaded.agentScript
-        : path.resolve(cwd, loaded.agentScript);
-      const agentDir = path.dirname(agentScriptPath);
-      const configDir = path.join(agentDir, "..", "data", "config");
-      const out: AgentCommand = {
-        command: loaded.agentNode,
-        args: [loaded.agentScript, ...args],
-        env: { ...env, CURSOR_INVOKED_AS: "agent.cmd" },
-        agentScriptPath,
-        configDir: fs.existsSync(path.join(configDir, "cli-config.json"))
-          ? configDir
-          : undefined,
-      };
-      return out;
-    }
-
-    if (/\.cmd$/i.test(cmd)) {
-      const cmdResolved = path.resolve(cwd, cmd);
-      const dir = path.dirname(cmdResolved);
-      const nodeBin = path.join(dir, "node.exe");
-      const script = path.join(dir, "index.js");
-      if (fs.existsSync(nodeBin) && fs.existsSync(script)) {
-        const configDir = path.join(dir, "..", "data", "config");
-        return {
-          command: nodeBin,
-          args: [script, ...args],
-          env: { ...env, CURSOR_INVOKED_AS: "agent.cmd" },
-          agentScriptPath: script,
-          configDir: fs.existsSync(path.join(configDir, "cli-config.json"))
-            ? configDir
-            : undefined,
-        };
-      }
-      const versionDir = findLatestVersionDir(dir);
-      if (versionDir) {
-        const versionNode = path.join(versionDir, "node.exe");
-        const versionScript = path.join(versionDir, "index.js");
-        if (fs.existsSync(versionNode) && fs.existsSync(versionScript)) {
-          const configDir = path.join(dir, "..", "data", "config");
-          return {
-            command: versionNode,
-            args: [versionScript, ...args],
-            env: { ...env, CURSOR_INVOKED_AS: "agent.cmd" },
-            agentScriptPath: versionScript,
-            configDir: fs.existsSync(path.join(configDir, "cli-config.json"))
-              ? configDir
-              : undefined,
-          };
-        }
-      }
-      const quotedArgs = args
-        .map((arg) => (arg.includes(" ") ? `"${arg}"` : arg))
-        .join(" ");
-      const cmdLine = `""${cmd}" ${quotedArgs}"`;
-      return {
-        command: loaded.commandShell,
-        args: ["/d", "/s", "/c", cmdLine],
-        env,
-        windowsVerbatimArguments: true,
-      };
-    }
-  }
-
-  return { command: cmd, args, env };
+  // This function is deprecated and no longer needed with SDK.
+  // Kept for backward compatibility during migration.
+  return { command: cmd, args, env: getEnvSource(opts.env) };
 }

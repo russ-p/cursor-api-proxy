@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 
+import { CursorSdkAgent } from "../sdk-agent.js";
+import {
+  isCursorAgentError,
+  getHttpStatusCode,
+  formatErrorForResponse,
+} from "../sdk-errors.js";
 import type { AnthropicMessagesRequest } from "../anthropic.js";
 import { buildPromptFromAnthropicMessages } from "../anthropic.js";
-import { buildAgentFixedArgs } from "../agent-cmd-args.js";
-import { runAgentStream, runAgentSync } from "../agent-runner.js";
-import { createStreamParser } from "../cli-stream-parser.js";
 import type { BridgeConfig } from "../config.js";
 import type { CursorExecutionMode } from "../execution-mode.js";
-import type { ModelCacheRef } from "./models.js";
+import type { ModelCacheRef, CursorModel } from "./models.js";
 import { getCachedCursorModels } from "./models.js";
 import { json, writeSseHeaders } from "../http.js";
 import { resolveModelForExecution } from "../model-map.js";
@@ -35,13 +38,17 @@ import {
   reportRequestError,
   getAccountStats,
 } from "../account-pool.js";
-import {
-  fitPromptToWinCmdline,
-  warnPromptTruncated,
-} from "../win-cmdline-limit.js";
 
-function isRateLimited(stderr: string): boolean {
-  return /\b429\b|rate.?limit|too many requests/i.test(stderr);
+function isRateLimited(err: unknown): boolean {
+  if (isCursorAgentError(err)) {
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes("429") ||
+      msg.includes("rate limit") ||
+      msg.includes("too many requests")
+    );
+  }
+  return false;
 }
 
 export type AnthropicMessagesCtx = {
@@ -156,11 +163,9 @@ export async function handleAnthropicMessages(
 
   const headerWs = req.headers["x-cursor-workspace"];
   let workspaceDir: string;
-  let tempDir: string | undefined;
   try {
     const ws = resolveWorkspace(config, headerWs, effectiveChatOnly);
     workspaceDir = ws.workspaceDir;
-    tempDir = ws.tempDir;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Invalid workspace";
     json(res, 400, {
@@ -169,45 +174,33 @@ export async function handleAnthropicMessages(
     return;
   }
 
-  const fixedArgs = buildAgentFixedArgs(
-    config,
-    workspaceDir,
-    cursorModel,
-    !!body.stream,
-    mode,
-    effectiveChatOnly,
-  );
-  const fit = fitPromptToWinCmdline(config.agentBin, fixedArgs, prompt, {
-    maxCmdline: config.winCmdlineMax,
-    platform: process.platform,
-    cwd: workspaceDir,
-  });
-  if (!fit.ok) {
+  const msgId = `msg_${randomUUID().replace(/-/g, "")}`;
+
+  // Account pool tracking
+  const configDir = getNextAccountConfigDir();
+  logAccountAssigned(configDir);
+  reportRequestStart(configDir);
+
+  const abortController = new AbortController();
+  req.once("close", () => abortController.abort());
+
+  // Check if API key is available for cloud runtime
+  if (!config.cursorApiKey && config.useCloudRuntime) {
+    reportRequestEnd(configDir);
+    reportRequestError(configDir, 0);
+    logAccountStats(config.verbose, getAccountStats());
     json(res, 500, {
       error: {
         type: "api_error",
-        message: fit.error,
-        code: "windows_cmdline_limit",
+        message: "CURSOR_API_KEY is required for cloud runtime",
+        code: "missing_api_key",
       },
     });
     return;
   }
-  if (fit.truncated) {
-    warnPromptTruncated(fit.originalLength, fit.finalPromptLength);
-  }
-  const cmdArgs = fit.args;
-
-  const msgId = `msg_${randomUUID().replace(/-/g, "")}`;
-
-  const truncatedHeaders = fit.truncated
-    ? { "X-Cursor-Proxy-Prompt-Truncated": "true" }
-    : undefined;
-
-  const promptForAgent =
-    config.promptViaStdin || config.useAcp ? prompt : undefined;
 
   if (body.stream) {
-    writeSseHeaders(res, truncatedHeaders);
+    writeSseHeaders(res);
     res.on("error", () => {
       /* client disconnected mid-stream */
     });
@@ -232,241 +225,159 @@ export async function handleAnthropicMessages(
       content_block: { type: "text", text: "" },
     });
 
-    const configDir = getNextAccountConfigDir();
-    logAccountAssigned(configDir);
-    reportRequestStart(configDir);
     const streamStart = Date.now();
 
-    const abortController = new AbortController();
-    req.once("close", () => abortController.abort());
-
-    if (config.useAcp && typeof promptForAgent === "string") {
-      let accumulated = "";
-      runAgentStream(
-        config,
-        workspaceDir,
-        effectiveChatOnly,
-        cmdArgs,
-        (chunk) => {
-          accumulated += chunk;
-          writeEvent({
-            type: "content_block_delta",
-            index: 0,
-            delta: { type: "text_delta", text: chunk },
-          });
-        },
-        tempDir,
-        promptForAgent,
-        configDir,
-        abortController.signal,
-      )
-        .then(({ code, stderr: stderrOut }) => {
-          const latencyMs = Date.now() - streamStart;
-          reportRequestEnd(configDir);
-
-          if (stderrOut && isRateLimited(stderrOut)) {
-            reportRateLimit(configDir, 60000);
-          }
-
-          if (!abortController.signal.aborted) {
-            if (code !== 0) {
-              reportRequestError(configDir, latencyMs);
-              const publicMsg = logAgentError(
-                config.sessionsLogPath,
-                method,
-                pathname,
-                remoteAddress,
-                code,
-                stderrOut,
-              );
-              writeEvent({
-                type: "error",
-                error: { type: "api_error", message: publicMsg },
-              });
-            } else {
-              reportRequestSuccess(configDir, latencyMs);
-              logTrafficResponse(
-                config.verbose,
-                model ?? cursorModel,
-                accumulated,
-                true,
-              );
-              writeEvent({ type: "content_block_stop", index: 0 });
-              writeEvent({
-                type: "message_delta",
-                delta: { stop_reason: "end_turn", stop_sequence: null },
-                usage: { output_tokens: 0 },
-              });
-              writeEvent({ type: "message_stop" });
-            }
-          }
-          logAccountStats(config.verbose, getAccountStats());
-          res.end();
-        })
-        .catch((err) => {
-          reportRequestEnd(configDir);
-          if (!abortController.signal.aborted) {
-            reportRequestError(configDir, Date.now() - streamStart);
-          }
-          console.error(
-            `[${new Date().toISOString()}] Agent stream error:`,
-            err,
-          );
-          if (!abortController.signal.aborted) {
-            writeEvent({
-              type: "error",
-              error: {
-                type: "api_error",
-                message: "The Cursor agent stream failed. See server logs for details.",
-              },
-            });
-          }
-          res.end();
-        });
-      return;
-    }
+    const agent = new CursorSdkAgent({
+      apiKey: config.cursorApiKey ?? "",
+      model: cursorModel,
+      cwd: workspaceDir,
+      timeoutMs: config.timeoutMs,
+      signal: abortController.signal,
+    });
 
     let accumulated = "";
-    const parseLine = createStreamParser(
-      (text) => {
-        accumulated += text;
+
+    try {
+      await agent.execute(prompt, (chunk) => {
+        accumulated += chunk;
         writeEvent({
           type: "content_block_delta",
           index: 0,
-          delta: { type: "text_delta", text },
+          delta: { type: "text_delta", text: chunk },
         });
-      },
-      () => {
-        logTrafficResponse(
-          config.verbose,
-          model ?? cursorModel,
-          accumulated,
-          true,
+      });
+    } catch (err) {
+      const latencyMs = Date.now() - streamStart;
+      reportRequestEnd(configDir);
+
+      if (!abortController.signal.aborted) {
+        reportRequestError(configDir, latencyMs);
+
+        const statusCode = getHttpStatusCode(err);
+        const formatted = formatErrorForResponse(err);
+
+        logAgentError(
+          config.sessionsLogPath,
+          method,
+          pathname,
+          remoteAddress,
+          isCursorAgentError(err) ? 1 : 500,
+          isCursorAgentError(err) ? err.message : String(err),
         );
-        writeEvent({ type: "content_block_stop", index: 0 });
-        writeEvent({
-          type: "message_delta",
-          delta: { stop_reason: "end_turn", stop_sequence: null },
-          usage: { output_tokens: 0 },
-        });
-        writeEvent({ type: "message_stop" });
-      },
-    );
 
-    runAgentStream(
-      config,
-      workspaceDir,
-      effectiveChatOnly,
-      cmdArgs,
-      parseLine,
-      tempDir,
-      promptForAgent,
-      configDir,
-      abortController.signal,
-    )
-      .then(({ code, stderr: stderrOut }) => {
-        const latencyMs = Date.now() - streamStart;
-        reportRequestEnd(configDir);
-
-        if (stderrOut && isRateLimited(stderrOut)) {
+        if (isRateLimited(err)) {
           reportRateLimit(configDir, 60000);
         }
 
-        if (abortController.signal.aborted) {
-          /* client disconnected — do not count as success or failure */
-        } else if (code !== 0) {
-          reportRequestError(configDir, latencyMs);
-          logAgentError(
-            config.sessionsLogPath,
-            method,
-            pathname,
-            remoteAddress,
-            code,
-            stderrOut,
-          );
-        } else {
-          reportRequestSuccess(configDir, latencyMs);
-        }
-        logAccountStats(config.verbose, getAccountStats());
-        res.end();
-      })
-      .catch((err) => {
-        reportRequestEnd(configDir);
-        if (!abortController.signal.aborted) {
-          reportRequestError(configDir, Date.now() - streamStart);
-        }
-        console.error(
-          `[${new Date().toISOString()}] Agent stream error:`,
-          err,
-        );
-        res.end();
-      });
+        writeEvent({
+          type: "error",
+          error: { type: "api_error", message: formatted.message },
+        });
+      }
+
+      await agent.dispose();
+      logAccountStats(config.verbose, getAccountStats());
+      res.end();
+      return;
+    }
+
+    await agent.dispose();
+
+    const latencyMs = Date.now() - streamStart;
+    reportRequestEnd(configDir);
+    reportRequestSuccess(configDir, latencyMs);
+
+    logTrafficResponse(
+      config.verbose,
+      model ?? cursorModel,
+      accumulated,
+      true,
+    );
+
+    writeEvent({ type: "content_block_stop", index: 0 });
+    writeEvent({
+      type: "message_delta",
+      delta: { stop_reason: "end_turn", stop_sequence: null },
+      usage: { output_tokens: 0 },
+    });
+    writeEvent({ type: "message_stop" });
+
+    logAccountStats(config.verbose, getAccountStats());
+    res.end();
     return;
   }
 
-  const configDir = getNextAccountConfigDir();
-  logAccountAssigned(configDir);
-  reportRequestStart(configDir);
+  // Non-streaming mode
   const syncStart = Date.now();
 
-  const abortController = new AbortController();
-  req.once("close", () => abortController.abort());
+  const agent = new CursorSdkAgent({
+    apiKey: config.cursorApiKey ?? "",
+    model: cursorModel,
+    cwd: workspaceDir,
+    timeoutMs: config.timeoutMs,
+    signal: abortController.signal,
+  });
 
-  const out = await runAgentSync(
-    config,
-    workspaceDir,
-    effectiveChatOnly,
-    cmdArgs,
-    tempDir,
-    promptForAgent,
-    configDir,
-    abortController.signal,
-  );
-  const syncLatency = Date.now() - syncStart;
-  reportRequestEnd(configDir);
-
-  if (out.stderr && isRateLimited(out.stderr)) {
-    reportRateLimit(configDir, 60000);
-  }
-
-  if (out.code !== 0) {
+  let result: string;
+  try {
+    const agentResult = await agent.execute(prompt);
+    result = agentResult.text;
+  } catch (err) {
+    const syncLatency = Date.now() - syncStart;
+    reportRequestEnd(configDir);
     reportRequestError(configDir, syncLatency);
-    logAccountStats(config.verbose, getAccountStats());
-    const errMsg = logAgentError(
+
+    const statusCode = getHttpStatusCode(err);
+    const formatted = formatErrorForResponse(err);
+
+    logAgentError(
       config.sessionsLogPath,
       method,
       pathname,
       remoteAddress,
-      out.code,
-      out.stderr,
+      isCursorAgentError(err) ? 1 : 500,
+      isCursorAgentError(err) ? err.message : String(err),
     );
-    json(res, 500, {
-      error: { type: "api_error", message: errMsg, code: "cursor_cli_error" },
+
+    if (isRateLimited(err)) {
+      reportRateLimit(configDir, 60000);
+    }
+
+    await agent.dispose();
+    logAccountStats(config.verbose, getAccountStats());
+
+    json(res, statusCode, {
+      error: {
+        type: "api_error",
+        message: formatted.message,
+        code: "cursor_sdk_error",
+      },
     });
     return;
   }
 
+  await agent.dispose();
+
+  const syncLatency = Date.now() - syncStart;
+  reportRequestEnd(configDir);
   reportRequestSuccess(configDir, syncLatency);
-  const content = out.stdout.trim();
-  logTrafficResponse(config.verbose, model ?? cursorModel, content, false);
+
+  logTrafficResponse(config.verbose, model ?? cursorModel, result, false);
   logAccountStats(config.verbose, getAccountStats());
+
   const inTok = Math.max(1, Math.round(prompt.length / 4));
-  const outTok = Math.max(1, Math.round(content.length / 4));
-  json(
-    res,
-    200,
-    {
-      id: msgId,
-      type: "message",
-      role: "assistant",
-      content: [{ type: "text", text: content }],
-      model: displayModel ?? cursorModel,
-      stop_reason: "end_turn",
-      usage: {
-        input_tokens: inTok,
-        output_tokens: outTok,
-      },
+  const outTok = Math.max(1, Math.round(result.length / 4));
+
+  json(res, 200, {
+    id: msgId,
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: result }],
+    model: displayModel ?? cursorModel,
+    stop_reason: "end_turn",
+    usage: {
+      input_tokens: inTok,
+      output_tokens: outTok,
     },
-    truncatedHeaders,
-  );
+  });
 }
