@@ -1,57 +1,47 @@
 # Examples
 
-**Prerequisites for all examples:** Cursor CLI installed and authenticated (`agent login`). The SDK examples **start the proxy in the background automatically** if it is not already running.
+This directory contains example scripts and integration tests for the cursor-api-proxy.
 
-Optional: set `CURSOR_PROXY_URL` to use a different proxy URL (default `http://127.0.0.1:8765`). Set `startProxy: false` when creating the client if you run the proxy yourself.
+## Files
 
----
+### test-sdk-integration.mjs
+Manual integration test for the SDK migration. Tests all major endpoints and functionality.
 
-## SDK examples (using the cursor-api-proxy package)
+**Prerequisites:**
+- Set `CURSOR_API_KEY` environment variable with a valid Cursor API key
+- Build the project: `npm run build`
+- Start the proxy: `npm start` (in another terminal)
 
-### sdk-client.mjs
-
-Uses the **minimal client** (`createCursorProxyClient`). Proxy starts automatically on first request. No extra dependencies.
-
+**Run the tests:**
 ```bash
-npm run build   # if running from repo
-node examples/sdk-client.mjs
+export CURSOR_API_KEY="cursor_..."
+npm run build
+npm start  # In another terminal
+node examples/test-sdk-integration.mjs
 ```
 
-### sdk-openai.mjs
+**Tests included:**
+1. Models list endpoint
+2. Health check endpoint
+3. Chat completion (non-streaming)
+4. Chat completion (streaming)
+5. Long prompt handling (no Windows limits)
+6. Anthropic Messages format
+7. Empty prompt handling
 
-Uses **getOpenAIOptionsAsync** with the **OpenAI SDK**. Proxy starts automatically. This is an optional example; `openai` is not part of this package and only needs to be installed in the project where you run the example.
+### test-sdk.mjs (Deprecated)
+Legacy SDK testing script. Use `test-sdk-integration.mjs` instead.
 
-```bash
-npm install openai
-node examples/sdk-openai.mjs
-```
+## Adding New Examples
 
-### sdk-stream.mjs
+To add a new example:
 
-Uses the **minimal client**’s **fetch** for streaming. Proxy starts automatically on first request.
+1. Create the file in this directory (e.g., `my-example.mjs`)
+2. Add a brief description to this README
+3. Run it with: `node examples/my-example.mjs`
 
-```bash
-node examples/sdk-stream.mjs
-```
+## Notes
 
----
-
-## Raw fetch examples (no SDK)
-
-### test.mjs
-
-Non-streaming chat completion via raw `fetch` (no cursor-api-proxy SDK import).
-
-```bash
-node examples/test.mjs
-```
-
-### test-stream.mjs
-
-Streaming chat completion via raw `fetch`.
-
-```bash
-node examples/test-stream.mjs
-```
-
-Prints each streamed chunk and the total character count.
+- All example scripts require the proxy to be running
+- Set `CURSOR_API_KEY` environment variable for API authentication
+- See the main README.md for more configuration options
