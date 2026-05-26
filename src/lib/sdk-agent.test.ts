@@ -14,10 +14,10 @@ vi.mock("@cursor/sdk", () => ({
     code: string;
     isRetryable: boolean;
 
-    constructor(message: string, code: string, options?: { isRetryable?: boolean }) {
+    constructor(message: string, options?: { code?: string; isRetryable?: boolean }) {
       super(message);
       this.name = "CursorAgentError";
-      this.code = code;
+      this.code = options?.code ?? "UNKNOWN";
       this.isRetryable = options?.isRetryable ?? false;
     }
   },
@@ -222,7 +222,8 @@ describe("CursorSdkAgent", () => {
   });
 
   it("should handle SDK errors", async () => {
-    const sdkError = new CursorAgentError("SDK error", "AUTH_ERROR", {
+    const sdkError = new CursorAgentError("SDK error", {
+      code: "AUTH_ERROR",
       isRetryable: false,
     });
 
