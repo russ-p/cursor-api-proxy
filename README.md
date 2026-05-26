@@ -1,6 +1,6 @@
 # cursor-api-proxy
 
-OpenAI-compatible proxy for Cursor CLI. Expose Cursor models on localhost so any LLM client (OpenAI SDK, LiteLLM, LangChain, etc.) can call them as a standard chat API.
+OpenAI-compatible proxy for Cursor AI. Expose Cursor models on localhost so any LLM client (OpenAI SDK, LiteLLM, LangChain, etc.) can call them as a standard chat API.
 
 This package works as **one npm dependency**: use it as an **SDK** in your app to call the proxy API, and/or run the **CLI** to start the proxy server. Core behavior is unchanged.
 
@@ -9,15 +9,13 @@ This package works as **one npm dependency**: use it as an **SDK** in your app t
 ## Prerequisites (required for the proxy to work)
 
 - **Node.js** 18+
-- **Cursor agent CLI** (`agent`). This package does **not** install or bundle the CLI. You must install and set it up separately. This project is developed and tested with `agent` version **2026.02.27-e7d2ef6**.
+- **Cursor API key** from the [Cursor dashboard](https://cursor.com/dashboard/cloud-agents)
 
   ```bash
-  curl https://cursor.com/install -fsS | bash
-  agent login
-  agent --list-models
+  export CURSOR_API_KEY="cursor_..."
   ```
 
-  For automation, set `CURSOR_API_KEY` instead of using `agent login`.
+  Get your API key from the Cursor Cloud Agents section of your dashboard.
 
 ## Install
 
@@ -25,6 +23,8 @@ This package works as **one npm dependency**: use it as an **SDK** in your app t
 
 ```bash
 npm install cursor-api-proxy
+export CURSOR_API_KEY="cursor_..."
+npx cursor-api-proxy
 ```
 
 **From source (develop or run CLI locally):**
@@ -33,7 +33,9 @@ npm install cursor-api-proxy
 git clone <this-repo>
 cd cursor-api-proxy
 npm install
+export CURSOR_API_KEY="cursor_..."
 npm run build
+npm start
 ```
 
 ## Run the proxy (CLI)
@@ -41,6 +43,7 @@ npm run build
 Start the server so the API is available (e.g. for the SDK or any HTTP client):
 
 ```bash
+export CURSOR_API_KEY="cursor_..."
 npx cursor-api-proxy
 # or from repo: npm start / node dist/cli.js
 ```
@@ -48,10 +51,50 @@ npx cursor-api-proxy
 To expose on your network (e.g. Tailscale):
 
 ```bash
+export CURSOR_API_KEY="cursor_..."
 npx cursor-api-proxy --tailscale
 ```
 
 By default the server listens on **http://127.0.0.1:8765**. Optionally set `CURSOR_BRIDGE_API_KEY` to require `Authorization: Bearer <key>` on requests.
+
+## Run with Docker
+
+### Build and run with Docker
+
+```bash
+# Build the image
+docker build -t cursor-api-proxy .
+
+# Run the container
+docker run -d \
+  --name cursor-api-proxy \
+  -p 8765:8765 \
+  -e CURSOR_API_KEY=your-cursor-api-key \
+  cursor-api-proxy
+```
+
+### Build and run with Docker Compose
+
+```bash
+# Create data directory for sessions log
+mkdir -p data/sessions
+
+# Create .env file for configuration (optional)
+cat > .env << EOF
+CURSOR_BRIDGE_PORT=8765
+CURSOR_BRIDGE_API_KEY=your-secret-key
+CURSOR_API_KEY=your-cursor-api-key
+CURSOR_BRIDGE_VERBOSE=false
+EOF
+
+# Build and start
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+**Note:** When running in Docker, you must set `CURSOR_API_KEY` for authentication.
 
 ### HTTPS with Tailscale (MagicDNS)
 
@@ -94,17 +137,17 @@ To serve over HTTPS so browsers and clients trust the connection (e.g. `https://
 When you point an agent runtime (OpenClaw, LangChain, a custom harness, etc.) at this proxy with a normal `baseUrl` + `apiKey`, you get a **cloud model behind an OpenAI-shaped HTTP API**. That is **not** the same product surface as the **Cursor IDE**, which can index and act on a local workspace.
 
 - **No implicit project context:** The model only sees what you put in the request—`messages`, optional tools schema, and **tool results that your client executes and sends back**. There is no automatic filesystem, repo layout, or `@codebase` injection from the proxy alone.
-- **If “local” actions work, they work in the client:** Reads, shell commands, and directory listings happen only when **your agent framework** implements tools and runs them on the host, then returns outputs in follow-up messages. The proxy does not substitute for that.
-- **Server-side workspace (optional):** The Cursor CLI may run with a workspace directory (`CURSOR_BRIDGE_WORKSPACE`, per-request `X-Cursor-Workspace`). By default, `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=true` runs the CLI in an **empty temp directory** so it does not read or write your real project; the proxy also overrides `HOME`, `USERPROFILE`, and `CURSOR_CONFIG_DIR` so the agent does not load global or project rules from elsewhere. Set it to `false` if you intentionally want the CLI to see a path on the machine where the proxy runs (still not the same as IDE indexing—see env table below).
-- **Recommended patterns for agents:** Use **client-side tools** (e.g. `read_file`, `run_terminal_cmd`) and pass results as tool messages; add **RAG** or retrieval and inject snippets into `user` content; or paste relevant files into the prompt. There is no built-in “sync entire workspace through the proxy” today; if that changes, it will be documented here.
+- **If "local" actions work, they work in the client:** Reads, shell commands, and directory listings happen only when **your agent framework** implements tools and runs them on the host, then returns outputs in follow-up messages. The proxy does not substitute for that.
+- **Server-side workspace (optional):** The Cursor agent may run with a workspace directory (`CURSOR_BRIDGE_WORKSPACE`, per-request `X-Cursor-Workspace`). By default, `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=true` runs the agent in an **empty temp directory** so it does not read or write your real project; the proxy also overrides `HOME`, `USERPROFILE`, and `CURSOR_CONFIG_DIR` so the agent does not load global or project rules from elsewhere. Set it to `false` if you intentionally want the agent to see a path on the machine where the proxy runs (still not the same as IDE indexing—see env table below).
+- **Recommended patterns for agents:** Use **client-side tools** (e.g. `read_file`, `run_terminal_cmd`) and pass results as tool messages; add **RAG** or retrieval and inject snippets into `user` content; or paste relevant files into the prompt. There is no built-in "sync entire workspace through the proxy" today; if that changes, it will be documented here.
 
 ## Use as SDK in another project
 
-Install the package and ensure the **Cursor agent CLI is installed and set up** (see Prerequisites). When you use the SDK with the default URL, **the proxy starts in the background automatically** if it is not already running. You can still start it yourself with `npx cursor-api-proxy` or set `CURSOR_PROXY_URL` to point at an existing proxy (then the SDK will not start another).
+Install the package and set `CURSOR_API_KEY`. When you use the SDK with the default URL, **the proxy starts in the background automatically** if it is not already running. You can still start it yourself with `npx cursor-api-proxy` or set `CURSOR_PROXY_URL` to point at an existing proxy (then the SDK will not start another).
 
 - **Base URL**: `http://127.0.0.1:8765/v1` (override with `CURSOR_PROXY_URL` or options).
 - **API key**: Use any value (e.g. `unused`), or set `CURSOR_BRIDGE_API_KEY` and pass it in options or env.
-- **Disable auto-start**: Pass `startProxy: false` (or use a custom `baseUrl`) if you run the proxy yourself and don’t want the SDK to start it.
+- **Disable auto-start**: Pass `startProxy: false` (or use a custom `baseUrl`) if you run the proxy yourself and don't want the SDK to start it.
 - **Shutdown behavior**: When the SDK starts the proxy, it also stops it automatically when the Node.js process exits or receives normal termination signals. `stopManagedProxy()` is still available if you want to shut it down earlier. `SIGKILL` cannot be intercepted.
 
 ### Option A: OpenAI SDK + helper (recommended)
@@ -157,7 +200,7 @@ const client = new OpenAI({
 | Method | Path                   | Description                                                           |
 | ------ | ---------------------- | --------------------------------------------------------------------- |
 | GET    | `/health`              | Server and config info                                                |
-| GET    | `/v1/models`           | List Cursor models (from `agent --list-models`)                       |
+| GET    | `/v1/models`           | List Cursor models                                                    |
 | POST   | `/v1/chat/completions` | Chat completion (OpenAI shape; supports `stream: true`)               |
 | POST   | `/v1/messages`         | Anthropic Messages API (used by Claude Code; supports `stream: true`) |
 
@@ -172,128 +215,81 @@ Environment handling is centralized in one module. Aliases, defaults, path resol
 | `CURSOR_BRIDGE_HOST` | `127.0.0.1` | Bind address |
 | `CURSOR_BRIDGE_PORT` | `8765` | Port |
 | `CURSOR_BRIDGE_API_KEY` | — | If set, require `Authorization: Bearer <key>` on requests |
-| `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN` | — | Cursor access token passed to spawned CLI/ACP children (automation, headless). Same value can be used for both names. |
-| `CURSOR_BRIDGE_WORKSPACE` | process cwd | Base workspace directory for Cursor CLI. With `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=false`, header `X-Cursor-Workspace` must point to an **existing directory under this path** (after resolving real paths). |
-| `CURSOR_BRIDGE_MODE` | — | Server default for Cursor CLI `--mode`: **`agent`**, **`ask`**, or **`plan`**. If unset, default is **`ask`**. **Env wins over** CLI `--mode` when both are set. Per request, JSON body **`mode`** or header **`X-Cursor-Mode`** overrides (precedence: body → header → this env → `--mode` → `ask`). Invalid value → startup error. With **`agent`** (or **`plan`**) and real workspace, the CLI may **read/write files** under `CURSOR_BRIDGE_WORKSPACE` / cwd—see `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE`. |
+| `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN` | — | **Required.** Cursor API key for authentication. Get it from [Cursor dashboard](https://cursor.com/dashboard/cloud-agents). |
+| `CURSOR_BRIDGE_WORKSPACE` | process cwd | Base workspace directory for Cursor agent. With `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=false`, header `X-Cursor-Workspace` must point to an **existing directory under this path** (after resolving real paths). |
+| `CURSOR_BRIDGE_MODE` | — | (Deprecated) Execution mode—describe mode in prompt instead |
 | `CURSOR_BRIDGE_DEFAULT_MODEL` | `auto` | Default model when request omits one |
 | `CURSOR_BRIDGE_STRICT_MODEL` | `true` | Use last requested model when none specified |
-| `CURSOR_BRIDGE_FORCE` | `false` | Pass `--force` to Cursor CLI |
-| `CURSOR_BRIDGE_APPROVE_MCPS` | `false` | Pass `--approve-mcps` to Cursor CLI |
+| `CURSOR_BRIDGE_FORCE` | `false` | (Deprecated) Force flag—no longer applicable with SDK |
+| `CURSOR_BRIDGE_APPROVE_MCPS` | `false` | (Deprecated) MCP approval—handled by SDK automatically |
 | `CURSOR_BRIDGE_TIMEOUT_MS` | `300000` | Timeout per completion (ms) |
 | `CURSOR_BRIDGE_TLS_CERT` | — | Path to TLS certificate file (e.g. Tailscale cert). Use with `CURSOR_BRIDGE_TLS_KEY` for HTTPS. |
 | `CURSOR_BRIDGE_TLS_KEY` | — | Path to TLS private key file. Use with `CURSOR_BRIDGE_TLS_CERT` for HTTPS. |
 | `CURSOR_BRIDGE_SESSIONS_LOG` | `~/.cursor-api-proxy/sessions.log` | Path to log file; each request is appended as a line (timestamp, method, path, IP, status). |
-| `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE` | `true` | When `true` (default), the CLI runs in an empty temp dir so it **cannot read or write your project**; pure chat only. The proxy also overrides `HOME`, `USERPROFILE`, and `CURSOR_CONFIG_DIR` so the agent cannot load rules from `~/.cursor` or project rules from elsewhere. Set to `false` to pass the real workspace (e.g. for `X-Cursor-Workspace`). **Mode interaction:** for a request whose effective mode is not **`ask`**, if this variable was **not set in the environment** (left at default), the proxy uses the **real workspace** for that request so `agent` / `plan` can touch files. If you **did** set this variable in the environment (to `true` or `false`), that choice is **always** honored for every request. |
+| `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE` | `true` | When `true` (default), the agent runs in an empty temp dir so it **cannot read or write your project**; pure chat only. The proxy also overrides `HOME`, `USERPROFILE`, and `CURSOR_CONFIG_DIR` so the agent cannot load rules from `~/.cursor` or project rules from elsewhere. Set to `false` to pass the real workspace (e.g. for `X-Cursor-Workspace`). |
 | `CURSOR_BRIDGE_VERBOSE` | `false` | When `true`, print full request messages and response content to stdout for every completion (both stream and sync). |
-| `CURSOR_BRIDGE_MAX_MODE` | `false` | When `true`, enable Cursor **Max Mode** for all requests (larger context window, higher tool-call limits). The proxy writes `maxMode: true` to `cli-config.json` before each run. Works when using `CURSOR_AGENT_NODE`/`CURSOR_AGENT_SCRIPT`, the versioned layout (`versions/YYYY.MM.DD-commit/`), or node.exe + index.js next to agent.cmd. |
-| `CURSOR_BRIDGE_WIN_CMDLINE_MAX` | `30000` | **(Windows)** Upper bound (UTF-16 units, pessimistic) for the full `CreateProcess` command line. If the prompt would exceed it, the proxy keeps the **tail** of the prompt and prepends a short omission notice, logs a warning, and sets `X-Cursor-Proxy-Prompt-Truncated: true` on the response. Clamped to `4096`–`32700`. |
-| `CURSOR_CONFIG_DIRS` | — | Comma-separated configuration directories for round-robin account rotation (alias: `CURSOR_ACCOUNT_DIRS`). Auto-discovers authenticated accounts under `~/.cursor-api-proxy/accounts/` when unset. |
-| `CURSOR_BRIDGE_MULTI_PORT` | `false` | When `true` and multiple config dirs are set, spawns a separate server per directory on incrementing ports starting from `CURSOR_BRIDGE_PORT`. |
-| `CURSOR_BRIDGE_PROMPT_VIA_STDIN` | `false` | When `true`, sends the user prompt via **stdin** instead of argv (helps on Windows if argv is truncated). |
-| `CURSOR_BRIDGE_USE_ACP` | `false` | When `true`, uses **ACP (Agent Client Protocol)** over stdio (`agent acp`). Avoids Windows argv limits. See [Cursor ACP docs](https://cursor.com/docs/cli/acp). Set `NODE_DEBUG=cursor-api-proxy:acp` to debug. |
-| `CURSOR_BRIDGE_ACP_SKIP_AUTHENTICATE` | auto | When `CURSOR_API_KEY` is set, skips the ACP authenticate step. Set to `true` to skip when using `agent login` instead. |
-| `CURSOR_BRIDGE_ACP_RAW_DEBUG` | `false` | When `1` or `true`, log raw JSON-RPC from ACP stdout (requires `NODE_DEBUG=cursor-api-proxy:acp`). |
-| `CURSOR_AGENT_BIN` | `agent` | Path to Cursor CLI binary. Alias precedence: `CURSOR_AGENT_BIN`, then `CURSOR_CLI_BIN`, then `CURSOR_CLI_PATH`. |
-| `CURSOR_AGENT_NODE` | — | **(Windows)** Path to Node.js. With `CURSOR_AGENT_SCRIPT`, spawns Node directly and bypasses cmd.exe’s ~8191 limit (CreateProcess ~32K still applies; see `CURSOR_BRIDGE_WIN_CMDLINE_MAX`). |
-| `CURSOR_AGENT_SCRIPT` | — | **(Windows)** Path to the agent script (e.g. `agent.cmd` or `.js`). Use with `CURSOR_AGENT_NODE` for long prompts. |
+| `CURSOR_BRIDGE_MAX_MODE` | `false` | (Deprecated) Max Mode—not supported by SDK |
+| `CURSOR_BRIDGE_WIN_CMDLINE_MAX` | `30000` | (Deprecated) No longer needed—SDK handles long prompts on all platforms |
+| `CURSOR_CONFIG_DIRS` | — | (Deprecated) No longer used—use separate proxy instances with different API keys |
+| `CURSOR_BRIDGE_MULTI_PORT` | `false` | (Deprecated) No longer used—run multiple proxy instances manually |
+| `CURSOR_BRIDGE_PROMPT_VIA_STDIN` | `false` | (Deprecated) No longer needed—SDK handles prompt delivery |
+| `CURSOR_BRIDGE_USE_ACP` | `false` | (Deprecated) No longer needed—SDK uses native protocols |
+| `CURSOR_BRIDGE_ACP_SKIP_AUTHENTICATE` | auto | (Deprecated) No longer applicable |
+| `CURSOR_BRIDGE_ACP_RAW_DEBUG` | `false` | (Deprecated) No longer applicable |
+| `CURSOR_AGENT_BIN` | `agent` | (Deprecated) No longer needed—SDK handles execution |
+| `CURSOR_AGENT_NODE` | — | (Deprecated) No longer needed—SDK handles execution |
+| `CURSOR_AGENT_SCRIPT` | — | (Deprecated) No longer needed—SDK handles execution |
+
+### Removed in v2.0
+
+These environment variables are no longer supported:
+
+- `CURSOR_AGENT_BIN`, `CURSOR_CLI_BIN`, `CURSOR_CLI_PATH` — Agent binary path
+- `CURSOR_AGENT_NODE`, `CURSOR_AGENT_SCRIPT` — Node.js/script path for Windows
+- `CURSOR_BRIDGE_USE_ACP`, `CURSOR_BRIDGE_ACP_SKIP_AUTHENTICATE`, `CURSOR_BRIDGE_ACP_RAW_DEBUG` — ACP protocol settings
+- `CURSOR_BRIDGE_PROMPT_VIA_STDIN` — Prompt delivery method
+- `CURSOR_BRIDGE_WIN_CMDLINE_MAX` — Windows command line limit
+- `CURSOR_BRIDGE_MAX_MODE` — Max Mode
+- `CURSOR_BRIDGE_FORCE` — Force flag
+- `CURSOR_BRIDGE_APPROVE_MCPS` — MCP approval
+- `CURSOR_BRIDGE_MODE` — Execution mode
+- `CURSOR_CONFIG_DIRS` — Multi-account config dirs
+- `CURSOR_BRIDGE_MULTI_PORT` — Multi-port mode
 
 Notes:
 
-- The `login` subcommand depends on `chrome-launcher`; its dependency tree may pull typings into production installs. Prefer `npm audit` before release; upstream may move types to `devDependencies` over time.
 - `--tailscale` changes the default host to `0.0.0.0` only when `CURSOR_BRIDGE_HOST` is not already set.
-- ACP `session/request_permission` uses `reject-once` (least-privilege) so the agent cannot grant file/tool access; intentional for chat-only mode.
 - Relative paths such as `CURSOR_BRIDGE_WORKSPACE`, `CURSOR_BRIDGE_SESSIONS_LOG`, `CURSOR_BRIDGE_TLS_CERT`, and `CURSOR_BRIDGE_TLS_KEY` are resolved from the current working directory.
 
-#### Windows command line limits
+### Windows Support
 
-Two different limits matter:
+**v2.0+ has native Windows support**—no more command-line limitations or workarounds. The SDK handles all platform differences internally, so long prompts work identically on Windows, macOS, and Linux.
 
-1. **cmd.exe** — about **8191** characters. If the proxy invokes the agent through `cmd.exe`, long prompts can fail before the process starts.
-2. **CreateProcess** — about **32,767** characters for the **entire** command line (executable path plus all arguments), even when spawning `node.exe` and the script directly.
+### Multi-Instance Support
 
-When `agent.cmd` is used (e.g. under `%LOCALAPPDATA%\cursor-agent\`), the proxy **auto-detects the versioned layout** (`versions/YYYY.MM.DD-commit/`) and spawns `node.exe` + `index.js` from the latest version directly, bypassing cmd.exe. If that does not apply, set both `CURSOR_AGENT_NODE` and `CURSOR_AGENT_SCRIPT` so the proxy spawns Node with the script and args **without** cmd.exe.
-
-Very large prompts can still hit the **CreateProcess** cap and produce `spawn ENAMETOOLONG`. The proxy mitigates that on Windows by **truncating the start of the prompt** while **keeping the tail** (recent context), prepending a short notice, logging a warning, and optionally exposing `X-Cursor-Proxy-Prompt-Truncated: true`. Tune the budget with `CURSOR_BRIDGE_WIN_CMDLINE_MAX` (default `30000`). **ACP** or **stdin prompt** avoids argv length limits for prompt delivery.
-
-Example (adjust paths to your install):
+If you need to use multiple Cursor accounts, run multiple proxy instances with different `CURSOR_API_KEY` values on different ports:
 
 ```bash
-set CURSOR_AGENT_NODE=C:\Program Files\nodejs\node.exe
-set CURSOR_AGENT_SCRIPT=C:\path\to\Cursor\resources\agent\agent.cmd
-# or for cursor-agent versioned layout:
-# set CURSOR_AGENT_NODE=%LOCALAPPDATA%\cursor-agent\versions\2026.03.11-6dfa30c\node.exe
-# set CURSOR_AGENT_SCRIPT=%LOCALAPPDATA%\cursor-agent\versions\2026.03.11-6dfa30c\index.js
+# Terminal 1
+export CURSOR_API_KEY="key1" && export CURSOR_BRIDGE_PORT=8765 && npm start
+
+# Terminal 2
+export CURSOR_API_KEY="key2" && export CURSOR_BRIDGE_PORT=8766 && npm start
+
+# Terminal 3
+export CURSOR_API_KEY="key3" && export CURSOR_BRIDGE_PORT=8767 && npm start
 ```
 
-CLI flags:
-
-| Flag           | Description                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| `--tailscale`  | Bind to `0.0.0.0` for access from tailnet/LAN (unless `CURSOR_BRIDGE_HOST` is already set) |
-| `--verbose`    | Enable verbose logs (request/response previews + model resolution chain)                    |
-| `--mode`       | Default Cursor CLI mode: `agent`, `ask`, or `plan` (default `ask` if omitted). Overridden by `CURSOR_BRIDGE_MODE` when set. |
-| `-h`, `--help` | Show CLI usage                                                                             |
-
-Optional per-request overrides:
-
-- Header **`X-Cursor-Workspace: <path>`** — use a subdirectory of `CURSOR_BRIDGE_WORKSPACE` (requires real workspace: set `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=false` or use a non-`ask` mode without forcing chat-only; path must exist on the proxy host).
-- Header **`X-Cursor-Mode: <agent|ask|plan>`** or JSON body field **`mode`** — execution mode for that request (body wins over header).
-
-**CLI subcommands** (see `cursor-api-proxy --help`): `login <name>`, `accounts` (list), `logout`, `usage`, `reset-hwid` (see `--help` for options). Flags above still apply to the server entrypoint.
-
-## Multi-Account Setup
-
-You can use multiple Cursor accounts to distribute load and avoid hitting usage limits. The proxy now includes a built-in account manager that makes this very easy.
-
-### 1. Adding Accounts (Easy Method)
-
-You can add new accounts using the CLI `login` command. This will launch the Cursor CLI login process in an isolated profile directory: `~/.cursor-api-proxy/accounts/` on macOS/Linux, or `%USERPROFILE%\.cursor-api-proxy\accounts\` on Windows.
-
-```bash
-npx cursor-api-proxy login account1
-```
-
-_(A clean, incognito browser window will open for you to log into Cursor. Once done, the session is saved)._
-
-Repeat this for as many accounts as you want:
-
-```bash
-npx cursor-api-proxy login account2
-npx cursor-api-proxy login account3
-```
-
-**Auto-Discovery:** When you start the proxy server normally (`npx cursor-api-proxy`), it will automatically find all accounts under that `accounts` directory and include them in the rotation pool.
-
-### 2. Manual Config Directories
-
-If you already have separate configuration folders (or want to specify them explicitly), you can override auto-discovery using the `CURSOR_CONFIG_DIRS` environment variable:
-
-```bash
-CURSOR_CONFIG_DIRS=/path/to/cursor-agent-1,/path/to/cursor-agent-2 npm start
-```
-
-### 3. Modes of operation
-
-**A. Single Port, Round-Robin Rotation (Default)**  
-In this mode, the proxy listens on one port and rotates through the available accounts for each request, selecting the least busy account automatically. This is active by default when multiple accounts are found.
-
-**B. Multi-Port (One Server Per Account)**  
-If you want granular control (for example, to explicitly assign specific clients to specific accounts), you can use multi-port mode. The proxy will spawn multiple instances on incrementing ports, starting from `CURSOR_BRIDGE_PORT`.
-
-```bash
-CURSOR_BRIDGE_MULTI_PORT=true CURSOR_BRIDGE_PORT=8765 npm start
-```
-
-_Result: account1 is on 8765, account2 is on 8766, etc._
+This provides explicit control over which account each client uses.
 
 ## Streaming
 
-The proxy supports `stream: true` on `POST /v1/chat/completions` and `POST /v1/messages`. It returns Server-Sent Events (SSE) in OpenAI’s streaming format. Cursor CLI emits incremental deltas plus a final full message; the proxy deduplicates output so clients receive each chunk only once.
+The proxy supports `stream: true` on `POST /v1/chat/completions` and `POST /v1/messages`. It returns Server-Sent Events (SSE) in OpenAI's streaming format. The SDK emits incremental deltas; the proxy streams them to clients.
 
 **Test streaming:** from repo root, with the proxy running:
 
 ```bash
-node examples/test-stream.mjs
+node examples/test-sdk-integration.mjs
 ```
 
 See [examples/README.md](examples/README.md) for details.
