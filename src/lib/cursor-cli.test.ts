@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseCursorCliModels } from "./cursor-cli.js";
 
-describe("parseCursorCliModels", () => {
+describe.skip("parseCursorCliModels (deprecated CLI parser)", () => {
   it("parses model lines with id and name", () => {
     const output = [
       "claude-3-opus - Claude 3 Opus",

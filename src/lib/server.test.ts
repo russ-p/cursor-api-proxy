@@ -11,17 +11,19 @@ vi.mock("./sdk-models.js", () => ({
   ]),
 }));
 
-vi.mock("./sdk-agent.js", () => ({
-  CursorSdkAgent: vi.fn().mockImplementation(() => ({
-    execute: vi.fn().mockImplementation((_prompt, onChunk) => {
+vi.mock("./sdk-agent.js", () => {
+  class MockCursorSdkAgent {
+    execute = vi.fn().mockImplementation((_prompt: string, onChunk?: (chunk: string) => void) => {
       if (onChunk) {
         onChunk("Hello from SDK");
       }
       return Promise.resolve({ text: "Hello from SDK" });
-    }),
-    dispose: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
+    });
+    dispose = vi.fn().mockResolvedValue(undefined);
+  }
+
+  return { CursorSdkAgent: MockCursorSdkAgent };
+});
 
 vi.mock("./request-log.js", () => ({
   logIncoming: vi.fn(),
@@ -207,7 +209,7 @@ describe("startBridgeServer", () => {
     expect(status).toBe(200);
     const data = JSON.parse(body);
     expect(data.object).toBe("chat.completion");
-    expect(data.choices[0].message.content).toBe("Hello from agent");
+    expect(data.choices[0].message.content).toBe("Hello from SDK");
   });
 
   it("returns display model when request is default and defaultModel is set", async () => {

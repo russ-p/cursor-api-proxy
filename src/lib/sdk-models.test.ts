@@ -32,7 +32,7 @@ describe("sdk-models", () => {
 
     const models = await listSdkModels("test-key");
 
-    expect(Cursor.models.list).toHaveBeenCalledWith("test-key");
+    expect(Cursor.models.list).toHaveBeenCalledWith({ apiKey: "test-key" });
     expect(models).toHaveLength(3);
     expect(models[0]).toEqual({ id: "claude-3-opus", name: "Claude 3 Opus" });
     expect(models[1]).toEqual({ id: "claude-3-sonnet", name: "Claude 3 Sonnet" });
@@ -45,7 +45,7 @@ describe("sdk-models", () => {
     const models = await listSdkModels("test-key");
 
     expect(models).toHaveLength(0);
-    expect(Cursor.models.list).toHaveBeenCalledWith("test-key");
+    expect(Cursor.models.list).toHaveBeenCalledWith({ apiKey: "test-key" });
   });
 
   it("should throw on SDK errors", async () => {
@@ -62,7 +62,7 @@ describe("sdk-models", () => {
 
     const models = await listSdkModels(undefined);
 
-    expect(Cursor.models.list).toHaveBeenCalledWith(undefined);
+    expect(Cursor.models.list).toHaveBeenCalledWith({ apiKey: undefined });
     expect(models).toHaveLength(1);
   });
 

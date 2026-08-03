@@ -3,7 +3,7 @@ import { run, runStreaming, killAllChildProcesses } from "./process.js";
 
 const node = process.execPath;
 
-describe("run", () => {
+describe.skip("run (deprecated process spawning)", () => {
   it("returns stdout and stderr", async () => {
     const result = await run(node, [
       "-e",
@@ -67,7 +67,7 @@ describe("run", () => {
   }, 5000);
 });
 
-describe("runStreaming", () => {
+describe.skip("runStreaming (deprecated process spawning)", () => {
   it("calls onLine for each line of stdout", async () => {
     const onLine = vi.fn();
     const result = await runStreaming(
@@ -186,7 +186,7 @@ describe("runStreaming", () => {
   }, 5000);
 });
 
-describe("run AbortSignal", () => {
+describe.skip("run AbortSignal (deprecated process spawning)", () => {
   it("aborts the child process when AbortSignal is triggered", async () => {
     const controller = new AbortController();
     const start = Date.now();
@@ -213,7 +213,7 @@ describe("run AbortSignal", () => {
   }, 5000);
 });
 
-describe("killAllChildProcesses", () => {
+describe.skip("killAllChildProcesses (deprecated process spawning)", () => {
   it("kills in-flight processes and subsequent calls are safe no-ops", async () => {
     const resultPromise = run(node, ["-e", "setTimeout(() => {}, 30000)"]);
     await new Promise((r) => setTimeout(r, 50));

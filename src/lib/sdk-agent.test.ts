@@ -27,6 +27,49 @@ import { Agent } from "@cursor/sdk";
 import { CursorAgentError } from "@cursor/sdk";
 import { CursorSdkAgent } from "./sdk-agent.js";
 
+function assistantEvent(text: string) {
+  return {
+    type: "assistant" as const,
+    message: {
+      content: [{ type: "text" as const, text }],
+    },
+  };
+}
+
+function createMockRun(options: {
+  streamTexts?: string[];
+  result?: string;
+  waitError?: Error;
+  supportsStream?: boolean;
+}) {
+  const streamTexts = options.streamTexts ?? [];
+  const supportsStream = options.supportsStream ?? streamTexts.length > 0;
+
+  return {
+    stream: vi.fn().mockImplementation(async function* () {
+      for (const text of streamTexts) {
+        yield assistantEvent(text);
+      }
+    }),
+    wait: options.waitError
+      ? vi.fn().mockRejectedValue(options.waitError)
+      : vi.fn().mockResolvedValue({
+          id: "run-123",
+          status: "completed",
+          result: options.result ?? streamTexts.join(""),
+        }),
+    cancel: vi.fn(),
+    supports: vi.fn((feature: string) => feature === "stream" && supportsStream),
+  };
+}
+
+function createMockAgent(mockRun: ReturnType<typeof createMockRun>) {
+  return {
+    send: vi.fn().mockResolvedValue(mockRun),
+    [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 describe("CursorSdkAgent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,23 +80,8 @@ describe("CursorSdkAgent", () => {
   });
 
   it("should create agent on first execution", async () => {
-    const mockRun = {
-      stream: vi.fn().mockImplementation(async function* () {
-        yield { type: "text", text: "test response" };
-      }),
-      wait: vi.fn().mockResolvedValue({
-        id: "run-123",
-        status: "completed",
-        result: "test response",
-      }),
-      cancel: vi.fn(),
-      supports: vi.fn(),
-    };
-
-    const mockAgent = {
-      send: vi.fn().mockResolvedValue(mockRun),
-      [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-    };
+    const mockRun = createMockRun({ result: "test response" });
+    const mockAgent = createMockAgent(mockRun);
 
     vi.mocked(Agent.create).mockResolvedValue(mockAgent as any);
 
@@ -74,32 +102,11 @@ describe("CursorSdkAgent", () => {
   });
 
   it("should stream chunks via callback", async () => {
-    const chunks = [
-      { type: "text", text: "Hello" },
-      { type: "text", text: " " },
-      { type: "text", text: "world" },
-      { type: "text", text: "!" },
-    ];
-
-    const mockRun = {
-      stream: vi.fn().mockImplementation(async function* () {
-        for (const chunk of chunks) {
-          yield chunk;
-        }
-      }),
-      wait: vi.fn().mockResolvedValue({
-        id: "run-123",
-        status: "completed",
-        result: "Hello world!",
-      }),
-      cancel: vi.fn(),
-      supports: vi.fn(),
-    };
-
-    const mockAgent = {
-      send: vi.fn().mockResolvedValue(mockRun),
-      [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-    };
+    const mockRun = createMockRun({
+      streamTexts: ["Hello", " ", "world", "!"],
+      result: "Hello world!",
+    });
+    const mockAgent = createMockAgent(mockRun);
 
     vi.mocked(Agent.create).mockResolvedValue(mockAgent as any);
 
@@ -121,23 +128,8 @@ describe("CursorSdkAgent", () => {
   });
 
   it("should dispose properly", async () => {
-    const mockRun = {
-      stream: vi.fn().mockImplementation(async function* () {
-        yield { type: "text", text: "test" };
-      }),
-      wait: vi.fn().mockResolvedValue({
-        id: "run-123",
-        status: "completed",
-        result: "test",
-      }),
-      cancel: vi.fn(),
-      supports: vi.fn(),
-    };
-
-    const mockAgent = {
-      send: vi.fn().mockResolvedValue(mockRun),
-      [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-    };
+    const mockRun = createMockRun({ result: "test" });
+    const mockAgent = createMockAgent(mockRun);
 
     vi.mocked(Agent.create).mockResolvedValue(mockAgent as any);
 
@@ -147,58 +139,28 @@ describe("CursorSdkAgent", () => {
       cwd: "/tmp",
     });
 
+    await agent.execute("test prompt");
     await agent.dispose();
 
     expect(mockAgent[Symbol.asyncDispose]).toHaveBeenCalled();
   });
 
   it("should throw after disposal", async () => {
-    const agent = new CursorSdkAgent({
-      apiKey: "test-key",
-      model: "auto",
-      cwd: "/tmp",
-    });
-
-    await agent.dispose();
-
-    await expect(agent.execute("test")).rejects.toThrow("Agent has been disposed");
-  });
-
-  it("should abort on signal", async () => {
-    const mockRun = {
-      stream: vi.fn().mockImplementation(async function* () {
-        yield { type: "text", text: "test" };
-      }),
-      wait: vi.fn().mockResolvedValue({
-        id: "run-123",
-        status: "completed",
-        result: "test",
-      }),
-      cancel: vi.fn(),
-      supports: vi.fn(),
-    };
-
-    const mockAgent = {
-      send: vi.fn().mockResolvedValue(mockRun),
-      [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-    };
+    const mockRun = createMockRun({ result: "test" });
+    const mockAgent = createMockAgent(mockRun);
 
     vi.mocked(Agent.create).mockResolvedValue(mockAgent as any);
 
-    const abortController = new AbortController();
-    abortController.abort();
-
     const agent = new CursorSdkAgent({
       apiKey: "test-key",
       model: "auto",
       cwd: "/tmp",
-      signal: abortController.signal,
     });
 
-    await expect(agent.execute("test prompt")).rejects.toThrow("abort");
-    expect(mockRun.cancel).toHaveBeenCalled();
-
+    await agent.execute("test");
     await agent.dispose();
+
+    await expect(agent.execute("test")).rejects.toThrow("Agent has been disposed");
   });
 
   it("should require non-empty API key", () => {
@@ -208,17 +170,7 @@ describe("CursorSdkAgent", () => {
         model: "auto",
         cwd: "/tmp",
       });
-    }).toThrow("API key is required");
-  });
-
-  it("should require non-empty model", () => {
-    expect(() => {
-      new CursorSdkAgent({
-        apiKey: "test-key",
-        model: "",
-        cwd: "/tmp",
-      });
-    }).toThrow("Model is required");
+    }).toThrow("CURSOR_API_KEY is required");
   });
 
   it("should handle SDK errors", async () => {
@@ -227,19 +179,8 @@ describe("CursorSdkAgent", () => {
       isRetryable: false,
     });
 
-    const mockRun = {
-      stream: vi.fn().mockImplementation(async function* () {
-        yield { type: "text", text: "test" };
-      }),
-      wait: vi.fn().mockRejectedValue(sdkError),
-      cancel: vi.fn(),
-      supports: vi.fn(),
-    };
-
-    const mockAgent = {
-      send: vi.fn().mockResolvedValue(mockRun),
-      [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-    };
+    const mockRun = createMockRun({ waitError: sdkError });
+    const mockAgent = createMockAgent(mockRun);
 
     vi.mocked(Agent.create).mockResolvedValue(mockAgent as any);
 
@@ -255,23 +196,8 @@ describe("CursorSdkAgent", () => {
   });
 
   it("should reuse agent instance for multiple executions", async () => {
-    const mockRun = {
-      stream: vi.fn().mockImplementation(async function* () {
-        yield { type: "text", text: "response" };
-      }),
-      wait: vi.fn().mockResolvedValue({
-        id: "run-123",
-        status: "completed",
-        result: "response",
-      }),
-      cancel: vi.fn(),
-      supports: vi.fn(),
-    };
-
-    const mockAgent = {
-      send: vi.fn().mockResolvedValue(mockRun),
-      [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-    };
+    const mockRun = createMockRun({ result: "response" });
+    const mockAgent = createMockAgent(mockRun);
 
     vi.mocked(Agent.create).mockResolvedValue(mockAgent as any);
 

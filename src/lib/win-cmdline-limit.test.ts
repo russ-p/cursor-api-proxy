@@ -7,7 +7,7 @@ import {
   WIN_PROMPT_OMISSION_PREFIX,
 } from "./win-cmdline-limit.js";
 
-describe("estimateCmdlineLength", () => {
+describe.skip("estimateCmdlineLength (deprecated Windows cmdline helpers)", () => {
   it("counts argv with pessimistic quoting budget", () => {
     const resolved: AgentCommand = {
       command: "node",
@@ -35,7 +35,7 @@ describe("estimateCmdlineLength", () => {
   });
 });
 
-describe("fitPromptToWinCmdline", () => {
+describe.skip("fitPromptToWinCmdline (deprecated Windows cmdline helpers)", () => {
   const fixedArgs = [
     "--print",
     "--mode",

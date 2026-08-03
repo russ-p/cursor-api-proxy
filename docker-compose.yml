@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  cursor-api-proxy:
+    build: .
+    container_name: cursor-api-proxy
+    ports:
+      - "${CURSOR_BRIDGE_PORT:-8765}:8765"
+    environment:
+      # Bind to all interfaces in container
+      - CURSOR_BRIDGE_HOST=0.0.0.0
+      # Port
+      - CURSOR_BRIDGE_PORT=8765
+      # Required: Cursor API key for authentication
+      # Get it from: https://cursor.com/dashboard/cloud-agents
+      - CURSOR_API_KEY=${CURSOR_API_KEY}
+      # Optional: Set API key for proxy authentication (client authentication)
+      # If set, clients must include: Authorization: Bearer <key>
+      # - CURSOR_BRIDGE_API_KEY=your-secret-key
+      # Optional: Default model
+      - CURSOR_BRIDGE_DEFAULT_MODEL=auto
+      # Optional: Workspace directory (default: /app)
+      - CURSOR_BRIDGE_WORKSPACE=/app/workspace
+      # Optional: Enable verbose logging
+      - CURSOR_BRIDGE_VERBOSE=false
+      # Optional: Timeout per completion in milliseconds
+      - CURSOR_BRIDGE_TIMEOUT_MS=300000
+      # Optional: Use strict model resolution
+      - CURSOR_BRIDGE_STRICT_MODEL=true
+      # Optional: Use cloud runtime (vs local)
+      # Set to true for cloud execution (under development)
+      # - CURSOR_BRIDGE_USE_CLOUD_RUNTIME=false
+      # Optional: Chat-only workspace (no file operations)
+      # When true, runs in temp dir; when false, uses workspace for file ops
+      - CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=true
+    volumes:
+      # Persist sessions log
+      - ./data/sessions:/app/.cursor-api-proxy/sessions
+      # Optional: Mount workspace directory if needed
+      # - ./workspace:/app/workspace
+    restart: unless-stopped
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

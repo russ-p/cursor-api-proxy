@@ -73,11 +73,43 @@ docker run -d \
   cursor-api-proxy
 ```
 
-### Build and run with Docker Compose
+### Build and run with Docker Compose (Recommended)
 
 ```bash
-# Create data directory for sessions log
+# 1. Copy example environment file and configure
+cp .env.example .env
+
+# 2. Edit .env and set your CURSOR_API_KEY
+# Get your API key from: https://cursor.com/dashboard/cloud-agents
+
+# 3. Create data directory for sessions log
 mkdir -p data/sessions
+
+# 4. Build and start
+docker compose up -d
+
+# 5. View logs
+docker compose logs -f
+
+# 6. Stop the container
+docker compose down
+```
+
+**Docker Compose features:**
+- Automatic health checks
+- Volume mounting for session logs
+- Easy environment variable management via `.env` file
+- Proper signal handling with `dumb-init`
+- Optional workspace directory mounting
+
+**Workspace mount (optional):**
+
+If you want the agent to have access to a real workspace directory (with `CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE=false`), uncomment and configure the workspace volume in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - ./workspace:/app/workspace
+```
 
 # Create .env file for configuration (optional)
 cat > .env << EOF
